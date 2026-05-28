@@ -1,0 +1,154 @@
+name: 'leakferret'
+description: 'Context-aware secret scanning with provider-verified findings and SARIF upload.'
+author: 'Maria Khan'
+branding:
+  icon: 'shield'
+  color: 'red'
+
+inputs:
+  version:
+    description: 'leakferret version to install (e.g. "0.1.0"). Use "latest" for the most recent release.'
+    required: false
+    default: 'latest'
+  path:
+    description: 'Path to scan, relative to the repo root.'
+    required: false
+    default: '.'
+  verify-mode:
+    description: 'one of: none, best-effort, only-verified, ever-verified.'
+    required: false
+    default: 'best-effort'
+  format:
+    description: 'Output format: pretty, json, sarif. SARIF is what GitHub Code Scanning ingests.'
+    required: false
+    default: 'sarif'
+  fail-on:
+    description: 'Severity threshold to fail the run (low | medium | high | critical | any). "any" fails on any REAL finding.'
+    required: false
+    default: 'any'
+  baseline-path:
+    description: 'Path to the baseline file (relative to the repo root). Defaults to `.leakferret-baseline.json`.'
+    required: false
+    default: '.leakferret-baseline.json'
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Code Scanning (true / false).'
+    required: false
+    default: 'true'
+  category:
+    description: 'SARIF category (lets multiple leakferret runs coexist in Code Scanning).'
+    required: false
+    default: 'leakferret'
+  github-token:
+    description: 'Token for fetching binaries on rate-limited runners.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  findings-count:
+    description: 'Total number of findings.'
+    value: ${{ steps.scan.outputs.findings_count }}
+  verified-count:
+    description: 'Number of findings verified live by a provider.'
+    value: ${{ steps.scan.outputs.verified_count }}
+  sarif-path:
+    description: 'Path to the generated SARIF file.'
+    value: ${{ steps.scan.outputs.sarif_path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Detect platform
+      id: platform
+      shell: bash
+      run: |
+        case "$RUNNER_OS" in
+          Linux)   triple="x86_64-unknown-linux-gnu" ;;
+          macOS)   if [ "$(uname -m)" = "arm64" ]; then triple="aarch64-apple-darwin"; else triple="x86_64-apple-darwin"; fi ;;
+          Windows) triple="x86_64-pc-windows-gnu" ;;
+          *) echo "::error::unsupported RUNNER_OS=$RUNNER_OS"; exit 1 ;;
+        esac
+        echo "triple=$triple" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve version
+      id: ver
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        if [ "${{ inputs.version }}" = "latest" ]; then
+          v=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/leakferrethq/leakferret/releases/latest \
+            | grep -oP '"tag_name":\s*"\K[^"]+' \
+            | sed 's/^v//')
+        else
+          v="${{ inputs.version }}"
+        fi
+        echo "version=$v" >> "$GITHUB_OUTPUT"
+
+    - name: Cache binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.tool_cache }}/leakferret/${{ steps.ver.outputs.version }}
+        key: leakferret-${{ steps.ver.outputs.version }}-${{ steps.platform.outputs.triple }}
+
+    - name: Download binary
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        VER:    ${{ steps.ver.outputs.version }}
+        TRIPLE: ${{ steps.platform.outputs.triple }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        url="https://github.com/leakferrethq/leakferret/releases/download/v${VER}/leakferret-${VER}-${TRIPLE}.tar.gz"
+        dir="${{ runner.tool_cache }}/leakferret/${VER}"
+        mkdir -p "$dir"
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$url" | tar -xz -C "$dir"
+        chmod +x "$dir"/leakferret* || true
+
+    - name: Add to PATH
+      shell: bash
+      run: echo "${{ runner.tool_cache }}/leakferret/${{ steps.ver.outputs.version }}" >> "$GITHUB_PATH"
+
+    - name: Run scan
+      id: scan
+      shell: bash
+      run: |
+        sarif_path="leakferret.sarif"
+        verify_mode="${{ inputs.verify-mode }}"
+        # JSON for counts, SARIF for upload.
+        leakferret verify "${{ inputs.path }}" --verify-mode "$verify_mode" \
+          --format json > findings.json || true
+        leakferret verify "${{ inputs.path }}" --verify-mode "$verify_mode" \
+          --format sarif > "$sarif_path" || true
+
+        count=$(jq 'length' findings.json)
+        verified=$(jq '[.[] | select(.verification.status=="verified")] | length' findings.json)
+        echo "findings_count=$count" >> "$GITHUB_OUTPUT"
+        echo "verified_count=$verified" >> "$GITHUB_OUTPUT"
+        echo "sarif_path=$sarif_path"  >> "$GITHUB_OUTPUT"
+
+        echo "Findings: $count total, $verified verified live."
+
+        fail_on="${{ inputs.fail-on }}"
+        case "$fail_on" in
+          any)
+            real=$(jq '[.[] | select(.verdict=="real")] | length' findings.json)
+            if [ "$real" -gt 0 ]; then echo "::error::$real REAL findings"; exit 1; fi ;;
+          critical|high|medium|low)
+            blockers=$(jq --arg sev "$fail_on" \
+              '[.[] | select(.verdict=="real" and (
+                  (.severity=="critical") or
+                  ($sev=="high"     and (.severity=="high" or .severity=="critical")) or
+                  ($sev=="medium"   and (.severity=="medium" or .severity=="high" or .severity=="critical")) or
+                  ($sev=="low"      and .severity != "unknown")
+              ))] | length' findings.json)
+            if [ "$blockers" -gt 0 ]; then echo "::error::$blockers findings at or above $fail_on"; exit 1; fi ;;
+        esac
+
+    - name: Upload SARIF
+      if: inputs.upload-sarif == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif_path }}
+        category:   ${{ inputs.category }}
