@@ -2,8 +2,8 @@ name: 'leakferret'
 description: 'Context-aware secret scanning with provider-verified findings and SARIF upload.'
 author: 'Maria Khan'
 branding:
-  icon: 'shield'
-  color: 'red'
+  icon: 'key'
+  color: 'yellow'
 
 inputs:
   version:
