@@ -1,0 +1,39 @@
+name: smoke
+
+# Uses the composite action against this repo. It downloads the published
+# release binary, so this only passes once leakferrethq/leakferret v0.1.0
+# is public.
+on:
+  workflow_dispatch:
+  # Uncomment after the release is published:
+  # push:
+  # pull_request:
+
+jobs:
+  use-action:
+    name: run the action (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Plant a secret
+        shell: bash
+        run: |
+          mkdir -p app
+          printf "AWS_ACCESS_KEY = 'AKIAQ7W2E3R4T5Y6U7I8'\n" > app/config.rb
+      - name: Run the action against this repo
+        id: scan
+        continue-on-error: true
+        uses: ./
+        with:
+          path: .
+          upload-sarif: 'false'
+      - name: Assert it produced findings
+        shell: bash
+        run: |
+          c='${{ steps.scan.outputs.findings-count }}'
+          echo "findings-count=$c"
+          [ "${c:-0}" -ge 1 ] || { echo "::error::action produced no findings"; exit 1; }
