@@ -64,7 +64,7 @@ runs:
         case "$RUNNER_OS" in
           Linux)   triple="x86_64-unknown-linux-gnu" ;;
           macOS)   if [ "$(uname -m)" = "arm64" ]; then triple="aarch64-apple-darwin"; else triple="x86_64-apple-darwin"; fi ;;
-          Windows) triple="x86_64-pc-windows-gnu" ;;
+          Windows) triple="x86_64-pc-windows-msvc" ;;
           *) echo "::error::unsupported RUNNER_OS=$RUNNER_OS"; exit 1 ;;
         esac
         echo "triple=$triple" >> "$GITHUB_OUTPUT"
@@ -103,7 +103,9 @@ runs:
         url="https://github.com/leakferrethq/leakferret/releases/download/v${VER}/leakferret-${VER}-${TRIPLE}.tar.gz"
         dir="${{ runner.tool_cache }}/leakferret/${VER}"
         mkdir -p "$dir"
-        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$url" | tar -xz -C "$dir"
+        # Strip the archive's nested leakferret-<ver>-<triple>/ dir so the
+        # binary lands directly in "$dir" (which is what gets added to PATH).
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$url" | tar -xz --strip-components=1 -C "$dir"
         chmod +x "$dir"/leakferret* || true
 
     - name: Add to PATH
