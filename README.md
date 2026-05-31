@@ -6,6 +6,10 @@
 
 > MCP-native secret scanner — verified findings, agent-applied rewrites.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/leakferrethq/leakferret/master/brand/demo.gif" alt="leakferret finds, verifies, and rewrites a leaked secret" width="760">
+</p>
+
 Run [`leakferret`](https://github.com/leakferrethq/leakferret) on every push and
 pull request. This is a composite action: it downloads the prebuilt,
 statically-linked binary (written in Rust) from GitHub Releases, caches it on
