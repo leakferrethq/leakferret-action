@@ -109,6 +109,15 @@ location.
 Hosted runners (`ubuntu-latest`, `macos-latest`, `windows-latest`) are all
 supported.
 
+## Beyond CI
+
+This Action is one face of leakferret. The same binary is also a **CLI**
+(`npm i -g @leakferret/cli` · `gem install leakferret` ·
+`cargo install leakferret-cli`, then `leakferret scan .`) and an **MCP server**
+(`leakferret mcp`) that a coding agent can call to scan, verify, and rewrite
+*before it commits*. See the
+[main README](https://github.com/leakferrethq/leakferret).
+
 ## Using a local binary
 
 Like every leakferret wrapper, the underlying binary honors the `LEAKFERRET_BIN`
