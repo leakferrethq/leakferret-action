@@ -59,7 +59,7 @@ jobs:
 
 | Input | Default | Description |
 |---|---|---|
-| `version` | `latest` | leakferret version to install (e.g. `0.1.0`). `latest` resolves via the GitHub Releases API. |
+| `version` | `latest` | leakferret version to install (e.g. `0.1.1`). `latest` resolves via the GitHub Releases API. |
 | `path` | `.` | Path to scan, relative to the repo root. |
 | `verify-mode` | `best-effort` | One of `none`, `best-effort`, `only-verified`, `ever-verified`. |
 | `format` | `sarif` | Output format: `pretty`, `json`, or `sarif`. SARIF is what Code Scanning ingests. |

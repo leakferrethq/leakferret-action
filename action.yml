@@ -7,7 +7,7 @@ branding:
 
 inputs:
   version:
-    description: 'leakferret version to install (e.g. "0.1.0"). Use "latest" for the most recent release.'
+    description: 'leakferret version to install (e.g. "0.1.1"). Use "latest" for the most recent release.'
     required: false
     default: 'latest'
   path:
