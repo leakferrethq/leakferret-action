@@ -128,11 +128,18 @@ runs:
         #    if a release asset were swapped by anyone lacking that identity.
         if [ "$VERIFY_SIG" = "true" ]; then
           curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$asset.cosign.bundle" "$base/$asset.cosign.bundle"
-          cosign verify-blob \
-            --bundle "$asset.cosign.bundle" \
-            --certificate-identity-regexp '^https://github.com/leakferrethq/leakferret/\.github/workflows/release\.yml@refs/.+' \
-            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-            "$asset"
+          # On Windows runners the shell is Git Bash, which rewrites slash-heavy
+          # arguments into Windows paths — that corrupts the identity regexp so
+          # the certificate never matches. Disable that conversion for the cosign
+          # call only (a subshell keeps tar/curl above unaffected).
+          (
+            export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
+            cosign verify-blob \
+              --bundle "$asset.cosign.bundle" \
+              --certificate-identity-regexp '^https://github.com/leakferrethq/leakferret/\.github/workflows/release\.yml@refs/.+' \
+              --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+              "$asset"
+          )
           echo "cosign signature verified"
         fi
 
