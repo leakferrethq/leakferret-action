@@ -72,6 +72,7 @@ jobs:
 | `upload-sarif` | `true` | Upload SARIF to GitHub Code Scanning. |
 | `category` | `leakferret` | SARIF category (lets multiple leakferret runs coexist in Code Scanning). |
 | `github-token` | `${{ github.token }}` | Token for fetching binaries on rate-limited runners. |
+| `verify-signature` | `true` | Verify the downloaded binary's keyless cosign signature against the leakferret release workflow's OIDC identity before running it. The published SHA256 is always checked; set this to `false` only to skip the cosign step (e.g. an air-gapped runner without Sigstore access). |
 
 ## Outputs
 

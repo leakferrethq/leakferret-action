@@ -42,6 +42,10 @@ inputs:
     description: 'Token for fetching binaries on rate-limited runners.'
     required: false
     default: ${{ github.token }}
+  verify-signature:
+    description: 'Verify the downloaded binary''s keyless cosign signature against the leakferret release workflow identity (true / false).'
+    required: false
+    default: 'true'
 
 outputs:
   findings-count:
@@ -92,21 +96,51 @@ runs:
         path: ${{ runner.tool_cache }}/leakferret/${{ steps.ver.outputs.version }}
         key: leakferret-${{ steps.ver.outputs.version }}-${{ steps.platform.outputs.triple }}
 
-    - name: Download binary
+    - name: Install cosign
+      if: steps.cache.outputs.cache-hit != 'true' && inputs.verify-signature == 'true'
+      uses: sigstore/cosign-installer@v3
+
+    - name: Download and verify binary
       if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         VER:    ${{ steps.ver.outputs.version }}
         TRIPLE: ${{ steps.platform.outputs.triple }}
         GH_TOKEN: ${{ inputs.github-token }}
+        VERIFY_SIG: ${{ inputs.verify-signature }}
       run: |
-        url="https://github.com/leakferrethq/leakferret/releases/download/v${VER}/leakferret-${VER}-${TRIPLE}.tar.gz"
+        set -euo pipefail
+        base="https://github.com/leakferrethq/leakferret/releases/download/v${VER}"
+        asset="leakferret-${VER}-${TRIPLE}.tar.gz"
         dir="${{ runner.tool_cache }}/leakferret/${VER}"
         mkdir -p "$dir"
-        # Strip the archive's nested leakferret-<ver>-<triple>/ dir so the
-        # binary lands directly in "$dir" (which is what gets added to PATH).
-        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$url" | tar -xz --strip-components=1 -C "$dir"
+        cd "$dir"
+
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$asset"        "$base/$asset"
+        curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$asset.sha256" "$base/$asset.sha256"
+
+        # 1) Integrity: the SHA256 published next to the asset.
+        sha256sum -c "$asset.sha256"
+        echo "sha256 verified"
+
+        # 2) Provenance: keyless cosign signature tied to the leakferret release
+        #    workflow's OIDC identity. This is the strong check — it fails even
+        #    if a release asset were swapped by anyone lacking that identity.
+        if [ "$VERIFY_SIG" = "true" ]; then
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$asset.cosign.bundle" "$base/$asset.cosign.bundle"
+          cosign verify-blob \
+            --bundle "$asset.cosign.bundle" \
+            --certificate-identity-regexp '^https://github.com/leakferrethq/leakferret/\.github/workflows/release\.yml@refs/.+' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            "$asset"
+          echo "cosign signature verified"
+        fi
+
+        # 3) Only after verification, unpack. Strip the archive's nested
+        #    leakferret-<ver>-<triple>/ dir so the binary lands in "$dir".
+        tar -xz --strip-components=1 -C "$dir" -f "$asset"
         chmod +x "$dir"/leakferret* || true
+        rm -f "$asset" "$asset.sha256" "$asset.cosign.bundle"
 
     - name: Add to PATH
       shell: bash
