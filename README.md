@@ -137,6 +137,27 @@ set it on the step to skip the download:
           path: .
 ```
 
+## Block commits locally too (pre-commit hook)
+
+The Action gates pull requests; to also catch secrets before they are committed,
+add a git pre-commit hook that runs the same binary locally:
+
+```bash
+cat > .git/hooks/pre-commit <<'HOOK'
+#!/bin/sh
+# Offline secret scan (no network). Blocks the commit on any finding.
+leakferret verify . --verify-mode none --fail-on any || {
+  echo "leakferret blocked this commit. Bypass: git commit --no-verify"
+  exit 1
+}
+HOOK
+chmod +x .git/hooks/pre-commit
+```
+
+`--verify-mode none` keeps it offline; `--fail-on any` exits non-zero on any
+non-fixture finding. Pair with `leakferret baseline init` to block only on
+*new* secrets.
+
 ## License
 
 MIT for this action and the bundled binary. The fixture catalog **data** is
